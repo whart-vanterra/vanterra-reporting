@@ -8,8 +8,7 @@ import { Button } from '@/components/ui/button'
 import { createBrowserClient } from '@supabase/ssr'
 import {
   LayoutDashboard,
-  LogOut,
-  Settings
+  LogOut
 } from 'lucide-react'
 
 const navItems = [
@@ -17,11 +16,6 @@ const navItems = [
     href: '/',
     label: 'Dashboard',
     icon: LayoutDashboard,
-  },
-  {
-    href: '/admin/brands',
-    label: 'Admin',
-    icon: Settings,
   },
 ]
 
@@ -56,8 +50,8 @@ export function Navigation() {
             <div className="flex gap-1">
               {navItems.map((item) => {
                 const Icon = item.icon
-                const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
-                const href = item.href === '/admin/brands' ? item.href : `${item.href}${preservedQuery}`
+                const isActive = pathname === item.href
+                const href = `${item.href}${preservedQuery}`
 
                 return (
                   <Link

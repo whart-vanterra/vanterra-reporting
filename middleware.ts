@@ -1,36 +1,123 @@
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
-import { jwtVerify } from 'jose'
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse, type NextRequest } from 'next/server'
+import type { Database } from '@/types/database'
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.AUTH_SECRET || 'default-secret-change-me'
-)
+// Session configuration
+const SESSION_TIMEOUT = 60 * 60 * 1000 // 1 hour
+const SESSION_REFRESH_THRESHOLD = 15 * 60 * 1000 // 15 minutes
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+  const authDomain =
+    process.env.NEXT_PUBLIC_AUTH_DOMAIN ||
+    'https://auth.vanterrafoundations.com'
 
-  // Allow access to login page and static files
-  if (pathname === '/login' || pathname.startsWith('/_next') || pathname.startsWith('/api')) {
+  // Public paths that don't require authentication
+  const publicPaths = ['/auth/callback', '/login', '/_next', '/api', '/favicon.ico']
+  const isPublicPath = publicPaths.some((path) => pathname.startsWith(path))
+
+  if (isPublicPath) {
     return NextResponse.next()
   }
 
-  // Check for auth token
-  const token = request.cookies.get('auth-token')?.value
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  })
 
-  if (!token) {
-    return NextResponse.redirect(new URL('/login', request.url))
+  const supabase = createServerClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return request.cookies.get(name)?.value
+        },
+        set(name: string, value: string, options: any) {
+          request.cookies.set({
+            name,
+            value,
+            ...options,
+          })
+          response = NextResponse.next({
+            request: {
+              headers: request.headers,
+            },
+          })
+          response.cookies.set({
+            name,
+            value,
+            ...options,
+          })
+        },
+        remove(name: string, options: any) {
+          request.cookies.set({
+            name,
+            value: '',
+            ...options,
+          })
+          response = NextResponse.next({
+            request: {
+              headers: request.headers,
+            },
+          })
+          response.cookies.set({
+            name,
+            value: '',
+            ...options,
+          })
+        },
+      },
+    }
+  )
+
+  // SECURITY: Use getUser() instead of getSession() for server validation
+  // getUser() makes an API call to Supabase to verify the token
+  // getSession() only reads the cookie without validation
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  // If no user and not on public path, redirect to auth service
+  if (!user && !isPublicPath) {
+    return NextResponse.redirect(
+      `${authDomain}/login?origin=${encodeURIComponent(request.url)}`
+    )
   }
 
-  try {
-    // Verify token
-    await jwtVerify(token, JWT_SECRET)
-    return NextResponse.next()
-  } catch (error) {
-    // Invalid token, redirect to login
-    const response = NextResponse.redirect(new URL('/login', request.url))
-    response.cookies.delete('auth-token')
-    return response
+  // Check session expiration and refresh if needed
+  if (user) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (session && session.expires_at) {
+      const timeUntilExpiry = session.expires_at * 1000 - Date.now()
+
+      // If session expired, force re-authentication
+      if (timeUntilExpiry <= 0) {
+        await supabase.auth.signOut()
+        return NextResponse.redirect(
+          `${authDomain}/login?error=session_expired&origin=${encodeURIComponent(request.url)}`
+        )
+      }
+
+      // If session about to expire (< 15 minutes), refresh it
+      if (timeUntilExpiry < SESSION_REFRESH_THRESHOLD) {
+        const { error } = await supabase.auth.refreshSession()
+        if (error) {
+          console.error('Failed to refresh session:', error)
+          await supabase.auth.signOut()
+          return NextResponse.redirect(
+            `${authDomain}/login?error=session_refresh_failed&origin=${encodeURIComponent(request.url)}`
+          )
+        }
+      }
+    }
   }
+
+  return response
 }
 
 export const config = {

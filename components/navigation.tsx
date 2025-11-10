@@ -1,11 +1,11 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useSearchParams } from 'next/navigation'
+import { usePathname, useSearchParams, useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Button } from '@/components/ui/button'
-import { logout } from '@/app/actions/auth'
+import { createBrowserClient } from '@supabase/ssr'
 import {
   LayoutDashboard,
   LogOut,
@@ -28,13 +28,20 @@ const navItems = [
 export function Navigation() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const router = useRouter()
+
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
 
   // Preserve current filters when navigating
   const queryString = searchParams.toString()
   const preservedQuery = queryString ? `?${queryString}` : ''
 
   const handleLogout = async () => {
-    await logout()
+    await supabase.auth.signOut()
+    router.push('/login')
   }
 
   return (

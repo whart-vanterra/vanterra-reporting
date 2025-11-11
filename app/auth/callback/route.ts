@@ -44,21 +44,16 @@ export async function GET(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name) {
-          return cookieStore.get(name)?.value
+        getAll() {
+          return cookieStore.getAll()
         },
-        set(name, value, options) {
+        setAll(cookiesToSet) {
           try {
-            cookieStore.set({ name, value, ...options })
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            )
           } catch {
-            // noop
-          }
-        },
-        remove(name, options) {
-          try {
-            cookieStore.delete({ name, ...options })
-          } catch {
-            // noop
+            // noop - cookies cannot be set during Server Component render
           }
         },
       },
